@@ -103,3 +103,7 @@ onnx==1.18.0
 onnxruntime==1.19.2
 numpy==2.0.2
 pillow==11.3.0
+protobuf==5.28.3
+typing-extensions==4.12.2
+packaging==24.2
+
