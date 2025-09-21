@@ -84,18 +84,15 @@ import os
 # =========================
 # 🌍 Language Selector
 # =========================
-LANGUAGES = {"ru": "RU", "en": "EN", "kz": "KZ"}
+lang_options = {"KZ": "kz", "EN": "en", "RU": "ru"}
 
-if "lang" not in st.session_state:
-    st.session_state["lang"] = "en"  # язык по умолчанию
 
-lang = st.sidebar.selectbox(
-    # "🌐 Language",
-    options=list(LANGUAGES.keys()),
-    format_func=lambda x: LANGUAGES[x],
-    index=list(LANGUAGES.keys()).index(st.session_state["lang"]),
-    key="lang"
-)
+col1, col2, col3 = st.columns([8, 2, 1])
+with col3:
+    lang_label = st.selectbox(" ", options=list(lang_options.keys()), index=0)
+
+lang = lang_options[lang_label]
+st.session_state["lang"] = lang
 
 # =========================
 # 📝 Translations
@@ -249,6 +246,8 @@ side_model = load_side_model()
 # =========================
 # 🎨 Interface
 # =========================
+st.set_page_config(page_title="Computer Vision for Sinus CT", layout="centered")
+
 st.title(TEXTS["title"][lang])
 st.write(TEXTS["subtitle"][lang])
 
