@@ -81,92 +81,185 @@ import numpy as np
 from PIL import Image
 import os
 
-# --- App Header ---
-st.title("🧠 CV4CT: Computer Vision for Sinus CT Scan Support")
-st.write("AI Assistant for detecting sinus tumors and identifying the affected side.")
+# =========================
+# 🌍 Language Selector
+# =========================
+LANGUAGES = {"ru": "RU", "en": "EN", "kz": "KZ"}
 
-# --- Utils ---
+if "lang" not in st.session_state:
+    st.session_state["lang"] = "en"  # язык по умолчанию
+
+lang = st.sidebar.selectbox(
+    # "🌐 Language",
+    options=list(LANGUAGES.keys()),
+    format_func=lambda x: LANGUAGES[x],
+    index=list(LANGUAGES.keys()).index(st.session_state["lang"]),
+    key="lang"
+)
+
+# =========================
+# 📝 Translations
+# =========================
+TEXTS = {
+    "title": {
+        "ru": "🧠 CV4CT: Компьютерное зрение для КТ пазух",
+        "en": "🧠 CV4CT: Computer Vision for Sinus CT Scan Support",
+        "kz": "🧠 CV4CT: Синус КТ талдау үшін компьютерлік көру"
+    },
+    "subtitle": {
+        "ru": "ИИ-ассистент для выявления опухолей пазух и стороны поражения.",
+        "en": "AI Assistant for detecting sinus tumors and identifying the affected side.",
+        "kz": "Синус ісіктерін анықтау және зақымданған жақты табу үшін AI көмекшісі."
+    },
+    "upload_tab": {
+        "ru": "📂 Загрузить файл",
+        "en": "📂 Upload your file",
+        "kz": "📂 Файлды жүктеу"
+    },
+    "sample_tab": {
+        "ru": "🖼️ Использовать примеры",
+        "en": "🖼️ Use sample images",
+        "kz": "🖼️ Үлгі суреттерін қолдану"
+    },
+    "upload_prompt": {
+        "ru": "Загрузите КТ снимок пазух",
+        "en": "Upload a sinus CT scan",
+        "kz": "Синус КТ суретін жүктеңіз"
+    },
+    "uploaded_caption": {
+        "ru": "Загруженное изображение КТ",
+        "en": "Uploaded CT Image",
+        "kz": "Жүктелген КТ суреті"
+    },
+    "analyze_btn": {
+        "ru": "Анализировать",
+        "en": "Analyze",
+        "kz": "Талдау"
+    },
+    "choose_sample": {
+        "ru": "Выберите пример снимка КТ:",
+        "en": "Choose a sample CT image:",
+        "kz": "Үлгі КТ суретін таңдаңыз:"
+    },
+    "no_samples": {
+        "ru": "⚠️ В папке `test_for_users/` не найдено изображений.",
+        "en": "⚠️ No sample images found in `test_for_users/` folder.",
+        "kz": "⚠️ `test_for_users/` қалтасында суреттер табылмады."
+    },
+    "no_folder": {
+        "ru": "⚠️ Папка `test_for_users/` не найдена. Создайте её и добавьте изображения.",
+        "en": "⚠️ Folder `test_for_users/` not found. Please create it and add images.",
+        "kz": "⚠️ `test_for_users/` қалтасы табылмады. Оны жасап, суреттерді қосыңыз."
+    },
+    "tumor_detection": {
+        "ru": "Определение опухоли:",
+        "en": "Tumor Detection:",
+        "kz": "Ісікті анықтау:"
+    },
+    "tumor_found": {
+        "ru": "Опухоль обнаружена. Уверенность: **{:.1%}**",
+        "en": "Tumor detected with confidence: **{:.1%}**",
+        "kz": "Ісік табылды. Сенімділік: **{:.1%}**"
+    },
+    "no_tumor": {
+        "ru": "Опухоль не обнаружена. Уверенность: **{:.1%}**",
+        "en": "No tumor detected. Confidence: **{:.1%}**",
+        "kz": "Ісік табылмады. Сенімділік: **{:.1%}**"
+    },
+    "affected_side": {
+        "ru": "Сторона поражения:",
+        "en": "Affected Side:",
+        "kz": "Зақымданған жақ:"
+    },
+    "side_labels": {
+        "ru": ["Левая сторона", "Правая сторона", "Обе стороны"],
+        "en": ["Left side", "Right side", "Both sides"],
+        "kz": ["Сол жақ", "Оң жақ", "Екі жақ та"]
+    }
+}
+
+# =========================
+# 🔧 Utility Functions
+# =========================
 def preprocess(image: Image.Image) -> np.ndarray:
-    """Resize to 224x224, convert to float32 [0,1], HWC->CHW, add batch dim."""
+    """Resize to 224x224, normalize, CHW format, add batch dim."""
     image = image.resize((224, 224))
     arr = np.array(image).astype(np.float32) / 255.0
-    if arr.ndim == 2:  # grayscale -> RGB
+    if arr.ndim == 2:  # grayscale → RGB
         arr = np.stack([arr, arr, arr], axis=-1)
-    arr = arr.transpose(2, 0, 1)  # HWC → CHW
-    arr = np.expand_dims(arr, axis=0)  # [1,3,224,224]
-    return arr
+    arr = arr.transpose(2, 0, 1)
+    return np.expand_dims(arr, axis=0)
 
 def softmax(logits: np.ndarray) -> np.ndarray:
-    """Numerically stable softmax for 1D logits."""
     logits = logits - np.max(logits)
     exps = np.exp(logits)
     return exps / np.sum(exps)
 
 def run_onnx(session: ort.InferenceSession, inp: np.ndarray) -> np.ndarray:
-    """Run ONNX session and return 1D probs (softmax over class logits)."""
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: inp})
     logits = np.squeeze(outputs[0]).astype(np.float32)
     if logits.ndim > 1:
         logits = logits.reshape(-1)
-    probs = softmax(logits)
-    return probs
+    return softmax(logits)
 
 def clamp01(x: float) -> float:
     return float(max(0.0, min(1.0, x)))
 
 def analyze_image(image: Image.Image):
-    """Pipeline: preprocess -> tumor detection -> side detection."""
+    """Pipeline: preprocess → presence model → side model (if tumor)."""
     input_arr = preprocess(image)
 
-    # Tumor presence
+    # 1️⃣ Tumor presence detection
     tumor_probs = run_onnx(presence_model, input_arr)
     tumor_pred = int(np.argmax(tumor_probs))
-    tumor_confidence = float(tumor_probs[tumor_pred])
+    tumor_conf = float(tumor_probs[tumor_pred])
 
-    st.subheader("Tumor Detection:")
-    st.progress(clamp01(tumor_confidence))
+    st.subheader(TEXTS["tumor_detection"][lang])
+    st.progress(clamp01(tumor_conf))
+
     if tumor_pred == 1:
-        st.error(f"Tumor detected with confidence: **{tumor_confidence:.1%}**")
+        st.error(TEXTS["tumor_found"][lang].format(tumor_conf))
 
-        # Tumor side
+        # 2️⃣ Side detection
         side_probs = run_onnx(side_model, input_arr)
         side_pred = int(np.argmax(side_probs))
-        side_confidence = float(side_probs[side_pred])
+        side_conf = float(side_probs[side_pred])
 
-        side_labels = {0: "Left side", 1: "Right side", 2: "Both sides"}
-
-        st.subheader("Affected Side:")
-        st.progress(clamp01(side_confidence))
-        st.warning(
-            f"Affected: **{side_labels[side_pred]}** "
-            f"with confidence **{side_confidence:.1%}**"
-        )
+        st.subheader(TEXTS["affected_side"][lang])
+        st.progress(clamp01(side_conf))
+        st.warning(f"{TEXTS['side_labels'][lang][side_pred]} — **{side_conf:.1%}**")
     else:
-        st.success(f"No tumor detected. Confidence: **{tumor_confidence:.1%}**")
+        st.success(TEXTS["no_tumor"][lang].format(tumor_conf))
 
-# --- Load models ---
+# =========================
+# 📦 Model Loading
+# =========================
 @st.cache_resource
-def load_presence_model() -> ort.InferenceSession:
+def load_presence_model():
     return ort.InferenceSession("presence_model.onnx", providers=["CPUExecutionProvider"])
 
 @st.cache_resource
-def load_side_model() -> ort.InferenceSession:
+def load_side_model():
     return ort.InferenceSession("side_model.onnx", providers=["CPUExecutionProvider"])
 
 presence_model = load_presence_model()
 side_model = load_side_model()
 
-# --- Tabs for user interaction ---
-tab1, tab2 = st.tabs(["📂 Upload your file", "🖼️ Use sample images"])
+# =========================
+# 🎨 Interface
+# =========================
+st.title(TEXTS["title"][lang])
+st.write(TEXTS["subtitle"][lang])
+
+tab1, tab2 = st.tabs([TEXTS["upload_tab"][lang], TEXTS["sample_tab"][lang]])
 
 with tab1:
-    uploaded_file = st.file_uploader("Upload a sinus CT scan", type=["jpg", "png", "jpeg"])
+    uploaded_file = st.file_uploader(TEXTS["upload_prompt"][lang], type=["jpg", "png", "jpeg"])
     if uploaded_file:
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Uploaded CT Image", use_container_width=True)
-
-        if st.button("Analyze", key="analyze_uploaded"):
+        st.image(image, caption=TEXTS["uploaded_caption"][lang], use_container_width=True)
+        if st.button(TEXTS["analyze_btn"][lang], key="analyze_uploaded"):
             analyze_image(image)
 
 with tab2:
@@ -174,14 +267,13 @@ with tab2:
     if os.path.exists(test_dir):
         sample_images = [f for f in os.listdir(test_dir) if f.lower().endswith((".jpg", ".png", ".jpeg"))]
         if sample_images:
-            choice = st.selectbox("Choose a sample CT image:", sample_images)
+            choice = st.selectbox(TEXTS["choose_sample"][lang], sample_images)
             image_path = os.path.join(test_dir, choice)
             image = Image.open(image_path).convert("RGB")
-            st.image(image, caption=f"Sample: {choice}", use_container_width=True)
-
-            if st.button("Analyze", key="analyze_sample"):
+            st.image(image, caption=f"{choice}", use_container_width=True)
+            if st.button(TEXTS["analyze_btn"][lang], key="analyze_sample"):
                 analyze_image(image)
         else:
-            st.info("⚠️ No sample images found in `test_for_users/` folder.")
+            st.info(TEXTS["no_samples"][lang])
     else:
-        st.info("⚠️ Folder `test_for_users/` not found. Please create it and add images.")
+        st.info(TEXTS["no_folder"][lang])
