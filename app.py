@@ -89,7 +89,7 @@ lang_options = {"KZ": "kz", "EN": "en", "RU": "ru"}
 
 col1, col2, col3 = st.columns([8, 1, 2])
 with col3:
-    lang_label = st.selectbox("🌐", options=list(lang_options.keys()), index=0)
+    lang_label = st.selectbox(" ", options=list(lang_options.keys()), index=0)
 
 lang = lang_options[lang_label]
 st.session_state["lang"] = lang
